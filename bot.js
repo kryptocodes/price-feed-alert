@@ -354,9 +354,16 @@ bot.on('text', async ctx => {
 // Initialize and start
 (async () => {
     await initializeTokenList();
+    await db.connect();
     await bot.launch();
     console.log('Bot started successfully!');
 })();
 
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+process.once('SIGINT', async() => {
+    await db.disconnect();
+    bot.stop('SIGINT')
+});
+process.once('SIGTERM', async() => {
+    await db.disconnect();
+    bot.stop('SIGTERM')
+});

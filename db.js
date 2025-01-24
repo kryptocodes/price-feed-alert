@@ -1,67 +1,77 @@
-const fs = require('fs');
-const path = require('path');
+const { createClient } = require('redis');
 
-const DB_PATH = path.join(__dirname, 'data.json');
+const client = createClient({
+    url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
 
-// Initialize DB if it doesn't exist
-if (!fs.existsSync(DB_PATH)) {
-    fs.writeFileSync(DB_PATH, JSON.stringify({
-        users: {},
-        alerts: {}
-    }));
-}
+client.on('error', err => console.error('Redis Client Error:', err));
 
 const db = {
-    read: () => {
-        try {
-            return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-        } catch (error) {
-            console.error('Error reading DB:', error);
-            return { users: {}, alerts: {} };
-        }
+    connect: async () => {
+        await client.connect();
     },
 
-    write: (data) => {
+    disconnect: async () => {
+        await client.quit();
+    },
+
+    saveUser: async (userId, data) => {
         try {
-            fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+            await client.hSet(`user:${userId}`, 'data', JSON.stringify(data));
             return true;
         } catch (error) {
-            console.error('Error writing DB:', error);
+            console.error('Error saving user:', error);
             return false;
         }
     },
 
-    saveUser: (userId, data) => {
-        const dbData = db.read();
-        dbData.users[userId] = data;
-        return db.write(dbData);
+    getUser: async (userId) => {
+        try {
+            const data = await client.hGet(`user:${userId}`, 'data');
+            return data ? JSON.parse(data) : null;
+        } catch (error) {
+            console.error('Error getting user:', error);
+            return null;
+        }
     },
 
-    getUser: (userId) => {
-        const dbData = db.read();
-        return dbData.users[userId];
+    saveAlert: async (alertKey, data) => {
+        try {
+            await client.hSet(`alert:${alertKey}`, 'data', JSON.stringify(data));
+            return true;
+        } catch (error) {
+            console.error('Error saving alert:', error);
+            return false;
+        }
     },
 
-    saveAlert: (alertKey, data) => {
-        const dbData = db.read();
-        dbData.alerts[alertKey] = data;
-        return db.write(dbData);
+    deleteAlert: async (alertKey) => {
+        try {
+            await client.del(`alert:${alertKey}`);
+            return true;
+        } catch (error) {
+            console.error('Error deleting alert:', error);
+            return false;
+        }
     },
 
-    deleteAlert: (alertKey) => {
-        const dbData = db.read();
-        delete dbData.alerts[alertKey];
-        return db.write(dbData);
-    },
-
-    getAlerts: (userId) => {
-        const dbData = db.read();
-        return Object.entries(dbData.alerts)
-            .filter(([key]) => key.startsWith(`${userId}_`))
-            .reduce((acc, [key, value]) => {
-                acc[key] = value;
-                return acc;
-            }, {});
+    getAlerts: async (userId) => {
+        try {
+            const keys = await client.keys(`alert:${userId}_*`);
+            const alerts = {};
+            
+            for (const key of keys) {
+                const data = await client.hGet(key, 'data');
+                if (data) {
+                    alerts[key.replace('alert:', '')] = JSON.parse(data);
+                }
+            }
+            
+            return alerts;
+        } catch (error) {
+            console.error('Error getting alerts:', error);
+            return {};
+        }
     }
 };
 
